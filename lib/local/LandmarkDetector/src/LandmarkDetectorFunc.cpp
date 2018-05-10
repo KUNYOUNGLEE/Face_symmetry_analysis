@@ -122,6 +122,7 @@ cv::Vec6d LandmarkDetector::GetPoseWorld(const CLNF& clnf_model, double fx, doub
 	}
 }
 
+
 // Getting a head pose estimate from the currently detected landmarks, with appropriate correction due to orthographic camera issue
 // This is because rotation estimate under orthographic assumption is only correct close to the centre of the image
 // This method returns a corrected pose estimate with respect to world coordinates (Experimental)
@@ -149,8 +150,9 @@ cv::Vec6d LandmarkDetector::GetCorrectedPoseWorld(const CLNF& clnf_model, double
 
 		landmarks_3D = landmarks_3D.reshape(1, 3).t();
 
-		// Solving the PNP model
+		int n = 68;
 
+		// Solving the PNP model
 		// The camera matrix
 		cv::Matx33d camera_matrix(fx, 0, cx, 0, fy, cy, 0, 0, 1);
 		

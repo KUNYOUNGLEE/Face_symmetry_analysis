@@ -17,8 +17,10 @@ namespace LandmarkDetector
 	vector<cv::Point2d> CalculateLandmarksDistance(CLNF& clnf_model);
 	void DrawLandmarksDistance(cv::Mat img, vector<cv::Point> landmarks);
 
-	void DrawDistance(cv::Mat img, const cv::Mat_<double>& shape2D, const cv::Mat_<int>& visibilities, double *dist, double *norm_factor, int pre_dist);
+	void clacvectors(cv::Mat img, cv::Mat graph, const cv::Mat_<double>& shape2D ,cv::Mat_<double>& landmark_3D, const cv::Mat_<int>& visibilities);
 	void DrawDistance(cv::Mat img, const cv::Mat_<double>& shape2D);
-	void DrawDistance(cv::Mat img, const CLNF& clnf_model, double *dist, double *norm_factor, int pre_dist);
+	void DrawDistance(cv::Mat img, cv::Mat graph, const CLNF& clnf_model, cv::Mat_<double>& landmark_3D);
 
+	void init_min_max();
+	void calc_min_max(int eyebrow[], int eye[], int nose[], int mouth[], int outline[]);
 }

@@ -63,7 +63,8 @@
 
 #include <fstream>
 #include <sstream>
-
+#include <Windows.h>
+#include <atlbase.h>
 #include <iostream>
 
 // OpenCV includes
@@ -80,6 +81,9 @@
 #include <filesystem/fstream.hpp>		
 
 #include <FaceAnalyser.h>
+
+
+#pragma comment(linker,"/entry:WinMainCRTStartup /subsystem:console")
 
 #define Button_GetState(hwndCtl)            ((int)(DWORD)SNDMSG((hwndCtl), BM_GETSTATE, 0L, 0L))
 #define Button_Enable(hwndCtl, fEnable)         EnableWindow((hwndCtl), (fEnable))
@@ -126,7 +130,7 @@ static void DisplayImg(cv::Mat disp_image) // 다이얼로그 picture control에 영상 
 	}
 }
 
-static void DisplayMicroExpression(cv::Mat capture_image) // 다이얼로그 picture control에 미세표정 이미지 출력
+static void Displaygraph(cv::Mat capture_image)
 {
 	IplImage* m_pImage = NULL;
 	CvvImage m_cImage;
@@ -137,6 +141,25 @@ static void DisplayMicroExpression(cv::Mat capture_image) // 다이얼로그 picture 
 		m_cImage.CopyOf(m_pImage);//IplImage -> cvvImage (Opencv의 cv::Mat은 다양한 플랫폼을 지원함으로 picture control DC에 출력하기 위해선 변환이 필요함)
 
 		HWND panel = GetDlgItem(dialogWindow, IDC_PANEL2);
+		RECT rc;
+		GetClientRect(panel, &rc);//pitcture control 사각형을 받음
+		HDC dc = GetDC(panel);
+		m_cImage.DrawToHDC(dc, &rc);//출력
+		ReleaseDC(dialogWindow, dc);//dc해제
+	}
+}
+
+static void Displayexample(cv::Mat capture_image)
+{
+	IplImage* m_pImage = NULL;
+	CvvImage m_cImage;
+
+	if (!capture_image.empty())
+	{
+		m_pImage = &IplImage(capture_image);//cv::Mat -> IplImage
+		m_cImage.CopyOf(m_pImage);//IplImage -> cvvImage (Opencv의 cv::Mat은 다양한 플랫폼을 지원함으로 picture control DC에 출력하기 위해선 변환이 필요함)
+
+		HWND panel = GetDlgItem(dialogWindow, IDC_PANEL3);
 		RECT rc;
 		GetClientRect(panel, &rc);//pitcture control 사각형을 받음
 		HDC dc = GetDC(panel);
@@ -165,8 +188,6 @@ const std::string currentDateTime() {
 	struct tm  tstruct;
 	char       buf[80];
 	localtime_s(&tstruct, &now);
-	// Visit http://www.cplusplus.com/reference/clibrary/ctime/strftime/
-	// for more information about date/time format
 	strftime(buf, sizeof(buf), "%Y-%m-%d-%H-%M", &tstruct);
 
 	return buf;
@@ -272,6 +293,7 @@ INT_PTR CALLBACK MessageLoopThread(HWND dialogWindow, UINT message, WPARAM wPara
 			Runing_thread++;
 			Button_Enable(GetDlgItem(dialogWindow, IDC_RECORD), false);
 			if (Runing_thread == 1) {
+				LandmarkDetector::init_min_max();
 				CreateThread(NULL, NULL, OpenFace, NULL, NULL, NULL);
 			}
 
@@ -383,7 +405,7 @@ DWORD WINAPI OpenFace(LPVOID arg)
 	current_file = TCHARToString(fileName);
 	// By default write to same directory
 	outroot = TCHARToString(NPath);
-	outroot = outroot + "/recording/"+ currentDateTime() + "/";
+	outroot = outroot + "\\recording\\"+ currentDateTime() + "\\";
 	//outfile = currentDateTime() + ".avi";
 	///////////////////////////////////////////recording/////////////////////////////////////////////////////
 	// Do some grabbing
@@ -410,20 +432,15 @@ DWORD WINAPI OpenFace(LPVOID arg)
 
 	cv::Mat captured_image;
 	video_capture >> captured_image;
+	cv::Mat img = cv::imread("img2.JPG");
+	Displayexample(img);
 
-	boost::filesystem::path dir(outroot);
-	boost::filesystem::create_directory(dir);
+	//boost::filesystem::path dir(outroot.c_str());
+	//boost::filesystem::create_directory(dir);
 
 	// saving the videos
 	cv::VideoWriter video_writer;
 	ofstream outlog;
-
-	//if (IsModuleSelected(dialogWindow, IDC_RECORD))
-	//{
-	//	video_writer.open(out_file, CV_FOURCC('D', 'I', 'V', 'X'), 30, captured_image.size(), true);
-	//	outlog.open((outroot + outfile + ".log").c_str(), ios_base::out);
-	//	outlog << "frame  X(trans)  Y(trans)  Z(trans)     X(rot)   Y(rot)    Z(rot) " << endl;
-	//}
 
 	double freq = cv::getTickFrequency();
 	double init_time = (double)cv::getTickCount();
@@ -435,23 +452,11 @@ DWORD WINAPI OpenFace(LPVOID arg)
 	double norm_factor = 0;//정규화 팩터
 	int frame_count = 0;//프레임 카운터
 	bool clonefromwindow = false;
-	vector<double> Six_dist, Seven_dist, Eight_dist, dist_window;//Microexpression을 검출할 프레임속의 특징점 거리를 저장하기위해
-	vector<cv::Mat> Six_frame, Seven_frame, Eight_frame, Frame_window;//Micorexpression을 검출한 프레임을 저장
 	vector<double>::iterator iter;
 	vector<cv::Mat>::iterator Frame_iter;
 
 	while (!done) // this is not a for loop as we might also be reading from a webcam
 	{
-		Six_dist.reserve(6);
-		Six_dist.assign(6, 0.0);
-		Six_frame.reserve(6);;
-		Seven_dist.reserve(7);
-		Seven_dist.assign(7, 0.0);
-		//Seven_frame.reserve(7);
-		Eight_dist.reserve(8);
-		Eight_dist.assign(8, 0.0);
-		Eight_frame.reserve(8);
-
 		// We might specify multiple video files as arguments
 		if (files.size() > 0)
 		{
@@ -477,8 +482,17 @@ DWORD WINAPI OpenFace(LPVOID arg)
 			// Reading the images
 			cv::Mat_<float> depth_image;
 			cv::Mat_<uchar> grayscale_image;
-
 			cv::Mat disp_image = captured_image.clone();
+			HWND panel = GetDlgItem(dialogWindow, IDC_PANEL2);
+			RECT rc;
+			GetClientRect(panel, &rc);//pitcture control 사각형을 받음
+			int width = rc.right - rc.left;
+			int height = rc.bottom - rc.top;
+			// initialinzing graph image
+			cv::Mat graph_image = cv::Mat::zeros(height, width, CV_64FC3);
+
+
+
 
 			if (captured_image.channels() == 3)
 			{
@@ -566,6 +580,7 @@ DWORD WINAPI OpenFace(LPVOID arg)
 							clnf_models[model].detection_success = false;
 							detection_success = LandmarkDetector::DetectLandmarksInVideo(grayscale_image, depth_image, face_detections[detection_ind], clnf_models[model], det_parameters[model]);
 							
+
 							// This activates the model
 							active_models[model] = true;
 
@@ -579,6 +594,7 @@ DWORD WINAPI OpenFace(LPVOID arg)
 				{
 					// The actual facial landmark detection / tracking
 					detection_success = LandmarkDetector::DetectLandmarksInVideo(grayscale_image, depth_image, clnf_models[model], det_parameters[model]);
+
 				}
 			});
 
@@ -592,13 +608,19 @@ DWORD WINAPI OpenFace(LPVOID arg)
 				// Drawing the facial landmarks on the face and the bounding box around it if tracking is successful and initialised
 				double detection_certainty = clnf_models[model].detection_certainty;
 				double visualisation_boundary = -0.1;
-
+				cv::Point3d landmark3d;
 				// Only draw if the reliability is reasonable, the value is slightly ad-hoc
 				if (detection_certainty < visualisation_boundary)
 				{
+					cv::Mat_<double> landmark_3D;
+
+					clnf_models[model].pdm.CalcShape3D(landmark_3D, clnf_models[model].params_local);
+
+					LandmarkDetector::DrawDistance(disp_image,graph_image, clnf_models[model], landmark_3D);
+
 					//Microexpression 검출을 위해 선언된 함수
-					LandmarkDetector::DrawDistance(disp_image, clnf_models[model], &dist, &norm_factor, pre_dist);
-				
+					//LandmarkDetector::Draw(disp_image, clnf_models[model]);
+
 					//Size variation 보정을 위한 특징점 거리 측정(0.5초마다 측정)
 					if (frame_count % 15 == 0)
 					{
@@ -614,79 +636,9 @@ DWORD WINAPI OpenFace(LPVOID arg)
 
 					// A rough heuristic for box around the face width
 					int thickness = (int)std::ceil(2.0* ((double)captured_image.cols) / 640.0);
+
 				}
 			}
-			//dist 정규화
-			dist = dist / norm_factor;
-
-			//프레임과 특징점거리를 슬라이딩 윈도우 형태로 보관함
-			if (clnf_models[0].detection_certainty < -0.1)
-			{
-				dist_window.push_back(dist);
-				Frame_window.push_back(captured_image.clone());
-				if (dist_window.size() > 10)
-				{
-					iter = dist_window.begin();
-					dist_window.erase(iter);
-					Frame_iter = Frame_window.begin();
-					Frame_window.erase(Frame_iter);
-				}
-			}
-
-			//Micro expression 검출
-			if (dist_window.size() == 10)
-			{
-				if (abs(dist_window[5] - dist_window[0]) < 0.015 && abs(dist_window[2] - dist_window[0]) > 0.05)
-				{
-					for (int i = 0; i < 6 ;i++)
-					{
-						Six_dist[i] = dist_window[i];
-					}
-				}
-				else if (abs(dist_window[6] - dist_window[0]) < 0.015 && abs(dist_window[3] - dist_window[0]) > 0.05)
-				{
-					string save_img;
-					char out[255];
-
-					if (Seven_frame.size() > 0)
-					{
-						Seven_frame.clear();
-					}
-					for (int i = 0; i < 7; i++)
-					{
-						clonefromwindow = true;
-						Seven_dist[i] = dist_window[i];
-						Seven_frame.push_back(Frame_window[i].clone());
-						sprintf(out, "Fn_%d.jpg", frame_count - 7 + i);
-						save_img = outroot + out;
-						cv::imwrite(save_img, Frame_window[i].clone());
-					}
-
-				}
-				else if (abs(dist_window[7] - dist_window[0]) < 0.015 && abs(dist_window[4] - dist_window[0]) > 0.05)
-				{
-					for (int i = 0; i < 8; i++)
-					{
-						Eight_dist[i] = dist_window[i];
-					}
-				}
-			}
-
-			char str1[255];
-			sprintf(str1, "%0.2lf  %0.2lf  %0.2lf  %0.2lf  %0.2lf  %0.2lf", Six_dist[0], Six_dist[1], Six_dist[2], Six_dist[3], Six_dist[4], Six_dist[5]);
-			string str2("Micro6_dist:  ");
-			str2 += str1;
-			cv::putText(disp_image, str2, cv::Point(10, 400), CV_FONT_HERSHEY_SIMPLEX, 0.5, CV_RGB(255, 0, 0), 1, CV_AA);
-
-			sprintf(str1, "%0.2lf  %0.2lf  %0.2lf  %0.2lf  %0.2lf  %0.2lf  %0.2lf", Seven_dist[0], Seven_dist[1], Seven_dist[2], Seven_dist[3], Seven_dist[4], Seven_dist[5], Seven_dist[6]);
-			str2 = "Micro7_dist:  ";
-			str2 += str1;
-			cv::putText(disp_image, str2, cv::Point(10, 430), CV_FONT_HERSHEY_SIMPLEX, 0.5, CV_RGB(255, 0, 0), 1, CV_AA);
-
-			sprintf(str1, "%0.2lf  %0.2lf  %0.2lf  %0.2lf  %0.2lf  %0.2lf  %0.2lf  %0.2lf", Eight_dist[0], Eight_dist[1], Eight_dist[2], Eight_dist[3], Eight_dist[4], Eight_dist[5], Eight_dist[6], Eight_dist[7]);
-			str2 = "Micro8_dist:  ";
-			str2 += str1;
-			cv::putText(disp_image, str2, cv::Point(10, 460), CV_FONT_HERSHEY_SIMPLEX, 0.5, CV_RGB(255, 0, 0), 1, CV_AA);
 
 			// Work out the framerate
 			if (frame_count % 10 == 0)
@@ -703,16 +655,16 @@ DWORD WINAPI OpenFace(LPVOID arg)
 			fpsSt += fpsC;
 			cv::putText(disp_image, fpsSt, cv::Point(10, 20), CV_FONT_HERSHEY_SIMPLEX, 0.5, CV_RGB(255, 0, 0), 1, CV_AA);
 
-			char dist_str[255];
-			sprintf(dist_str, "%0.2lf", dist);
-			string distr("N_dist:");
-			distr += dist_str;
-			cv::putText(disp_image, distr, cv::Point(100, 20), CV_FONT_HERSHEY_SIMPLEX, 0.5, CV_RGB(255, 0, 0), 1, CV_AA);
+			//char dist_str[255];
+			//sprintf(dist_str, "%0.2lf", dist);
+			//string distr("N_dist:");
+			//distr += dist_str;
+			//cv::putText(disp_image, distr, cv::Point(100, 20), CV_FONT_HERSHEY_SIMPLEX, 0.5, CV_RGB(255, 0, 0), 1, CV_AA);
 
-			sprintf(dist_str, "%0.1lf", norm_factor);
-			distr = "Norm_factor:";
-			distr += dist_str;
-			cv::putText(disp_image, distr, cv::Point(220, 20), CV_FONT_HERSHEY_SIMPLEX, 0.5, CV_RGB(255, 0, 0), 1, CV_AA);
+			//sprintf(dist_str, "%0.1lf", norm_factor);
+			//distr = "Norm_factor:";
+			//distr += dist_str;
+			//cv::putText(disp_image, distr, cv::Point(220, 20), CV_FONT_HERSHEY_SIMPLEX, 0.5, CV_RGB(255, 0, 0), 1, CV_AA);
 
 			int num_active_models = 0;
 
@@ -736,9 +688,9 @@ DWORD WINAPI OpenFace(LPVOID arg)
 				{
 					// 다이얼로그 picture control에 영상 띄워주는 함수
 					DisplayImg(disp_image);
-					if (clonefromwindow)
+					if (!graph_image.empty())
 					{
-						DisplayMicroExpression(Seven_frame[(frame_count % 35) / 5]);
+						Displaygraph(graph_image);
 					}
 				}
 				if (!depth_image.empty())
